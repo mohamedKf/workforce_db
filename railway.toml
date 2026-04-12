@@ -1,9 +1,6 @@
 [build]
 builder = "nixpacks"
 
-[build.nixpacksPlan.phases.setup]
-nixPkgs = ["python3", "gcc", "pkg-config", "libmysqlclient"]
-
 [deploy]
 startCommand = "python manage.py migrate && gunicorn workforce_backend.wsgi --bind 0.0.0.0:$PORT --log-file -"
 healthcheckPath = "/api/auth/login/"
