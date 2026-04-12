@@ -1,0 +1,1 @@
+web: gunicorn workforce_backend.wsgi --log-file -

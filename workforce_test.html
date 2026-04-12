@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WorkForce — Test Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --blue: #1A56DB; --blue-dark: #1340A8; --blue-light: #EBF0FF;
+    --bg: #F0F5FF; --surface: #fff; --border: #DBEAFE;
+    --text: #0F172A; --muted: #475569; --hint: #94A3B8;
+    --green: #10B981; --red: #EF4444; --yellow: #F59E0B;
+  }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Layout ── */
+  .app { display: flex; height: 100vh; overflow: hidden; }
+  .sidebar { width: 240px; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  .main { flex: 1; overflow-y: auto; padding: 24px; }
+
+  /* ── Sidebar ── */
+  .logo { padding: 20px; background: linear-gradient(135deg, var(--blue), var(--blue-dark)); color: #fff; }
+  .logo h2 { font-size: 22px; font-weight: 700; }
+  .logo small { opacity: 0.7; font-size: 12px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 12px 20px; cursor: pointer; color: var(--muted); font-size: 14px; transition: all .2s; border: none; background: none; width: 100%; text-align: right; }
+  .nav-item:hover { background: var(--blue-light); color: var(--blue); }
+  .nav-item.active { background: var(--blue-light); color: var(--blue); font-weight: 600; border-right: 3px solid var(--blue); }
+  .nav-icon { font-size: 18px; width: 22px; text-align: center; }
+  .user-info { margin-top: auto; padding: 16px 20px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+  .user-info strong { display: block; color: var(--text); margin-bottom: 2px; }
+  .btn-logout { width: 100%; margin-top: 8px; padding: 8px; background: #FEF2F2; color: var(--red); border: 1px solid #FECACA; border-radius: 8px; cursor: pointer; font-size: 13px; font-family: inherit; }
+  .btn-logout:hover { background: var(--red); color: #fff; }
+
+  /* ── Login page ── */
+  .login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); }
+  .login-card { background: var(--surface); border-radius: 20px; padding: 40px; width: 380px; box-shadow: 0 8px 40px rgba(26,86,219,.12); }
+  .login-logo { text-align: center; margin-bottom: 32px; }
+  .login-logo .icon { width: 72px; height: 72px; background: linear-gradient(135deg, var(--blue), var(--blue-dark)); border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 12px; }
+  .login-logo h1 { font-size: 28px; color: var(--blue); font-weight: 700; }
+  .login-logo p { color: var(--muted); font-size: 14px; }
+
+  /* ── Forms ── */
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+  .form-group input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; font-family: inherit; background: var(--surface); transition: border .2s; }
+  .form-group input:focus { outline: none; border-color: var(--blue); }
+
+  /* ── Buttons ── */
+  .btn { padding: 12px 20px; border-radius: 10px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .2s; }
+  .btn-primary { background: var(--blue); color: #fff; width: 100%; }
+  .btn-primary:hover { background: var(--blue-dark); }
+  .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+  .btn-sm { padding: 6px 14px; font-size: 12px; }
+  .btn-green { background: var(--green); color: #fff; }
+  .btn-red { background: var(--red); color: #fff; }
+
+  /* ── Cards ── */
+  .card { background: var(--surface); border-radius: 16px; padding: 20px; box-shadow: 0 2px 12px rgba(0,0,0,.05); margin-bottom: 20px; }
+  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .card-title { font-size: 16px; font-weight: 700; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+  .stat-card { background: linear-gradient(135deg, var(--blue), var(--blue-dark)); border-radius: 16px; padding: 20px; color: #fff; }
+  .stat-card.green { background: linear-gradient(135deg, var(--green), #059669); }
+  .stat-card.yellow { background: linear-gradient(135deg, var(--yellow), #D97706); }
+  .stat-val { font-size: 32px; font-weight: 700; }
+  .stat-label { font-size: 13px; opacity: .8; margin-top: 4px; }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { background: var(--blue); color: #fff; padding: 10px 14px; text-align: right; font-weight: 600; }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--blue-light); }
+
+  /* ── Status badges ── */
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge-green { background: #D1FAE5; color: #065F46; }
+  .badge-blue { background: var(--blue-light); color: var(--blue); }
+  .badge-yellow { background: #FEF3C7; color: #92400E; }
+  .badge-red { background: #FEE2E2; color: #991B1B; }
+
+  /* ── Clock widget ── */
+  .clock-widget { text-align: center; padding: 32px; }
+  .clock-status { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--blue-light); border-radius: 20px; font-size: 13px; color: var(--blue); margin-bottom: 24px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--hint); }
+  .dot.active { background: var(--green); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .timer { font-size: 56px; font-weight: 700; color: var(--blue); letter-spacing: 3px; margin: 16px 0; font-variant-numeric: tabular-nums; }
+  .clock-btn { width: 160px; height: 160px; border-radius: 50%; border: none; font-size: 64px; cursor: pointer; box-shadow: 0 8px 32px rgba(26,86,219,.2); transition: all .3s; }
+  .clock-btn.in { background: var(--surface); color: var(--blue); }
+  .clock-btn.out { background: var(--surface); color: var(--red); box-shadow: 0 8px 32px rgba(239,68,68,.2); }
+  .clock-btn:hover { transform: scale(1.05); }
+  .clock-label { margin-top: 12px; font-size: 16px; font-weight: 600; color: var(--blue); }
+
+  /* ── Page header ── */
+  .page-header { margin-bottom: 24px; }
+  .page-header h1 { font-size: 24px; font-weight: 700; }
+  .page-header p { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+  /* ── Error / loader ── */
+  .error-box { background: #FEF2F2; border: 1px solid #FECACA; border-radius: 10px; padding: 12px 16px; color: var(--red); font-size: 13px; margin-bottom: 16px; }
+  .loader { text-align: center; padding: 40px; color: var(--hint); }
+  .spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Page visibility ── */
+  .page { display: none; }
+  .page.active { display: block; }
+  #loginPage { display: flex; }
+  #loginPage.hidden { display: none; }
+  #appShell { display: none; }
+  #appShell.visible { display: flex; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .stat-grid { grid-template-columns: 1fr 1fr; }
+    .sidebar { width: 60px; }
+    .nav-item span:not(.nav-icon) { display: none; }
+    .logo h2, .logo small, .user-info strong, .user-info small { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════ LOGIN ══ -->
+<div id="loginPage" class="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="icon">💼</div>
+      <h1>WorkForce</h1>
+      <p>ניהול כוח עבודה</p>
+    </div>
+    <div id="loginError" class="error-box" style="display:none"></div>
+    <div class="form-group">
+      <label>מספר תעודת זהות</label>
+      <input type="text" id="idNumber" placeholder="123456789" maxlength="9">
+    </div>
+    <div class="form-group">
+      <label>סיסמה</label>
+      <input type="password" id="password" placeholder="••••••" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">כניסה</button>
+    <div style="margin-top:16px;text-align:center;font-size:12px;color:var(--hint)">
+      WorkForce API Test Dashboard v1.0
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ APP ══ -->
+<div id="appShell" class="app">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="logo">
+      <h2>💼 WorkForce</h2>
+      <small>Test Dashboard</small>
+    </div>
+    <nav style="padding:8px 0">
+      <button class="nav-item active" onclick="showPage('clock')"><span class="nav-icon">⏱️</span><span>שעון נוכחות</span></button>
+      <button class="nav-item" onclick="showPage('attendance')"><span class="nav-icon">📅</span><span>נוכחות</span></button>
+      <button class="nav-item" onclick="showPage('projects')"><span class="nav-icon">🏗️</span><span>פרויקטים</span></button>
+      <button class="nav-item" onclick="showPage('payroll')"><span class="nav-icon">💰</span><span>תלושי שכר</span></button>
+      <button class="nav-item" onclick="showPage('api')"><span class="nav-icon">🔧</span><span>API בדיקה</span></button>
+    </nav>
+    <div class="user-info">
+      <strong id="sidebarName">—</strong>
+      <small id="sidebarRole">—</small>
+      <button class="btn-logout" onclick="doLogout()">🚪 התנתקות</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- ── Clock ── -->
+    <div id="clockPage" class="page active">
+      <div class="page-header">
+        <h1>שעון נוכחות</h1>
+        <p>כניסה ויציאה מהעבודה</p>
+      </div>
+      <div class="card">
+        <div class="clock-widget">
+          <div class="clock-status">
+            <div class="dot" id="clockDot"></div>
+            <span id="clockStatusText">לא במשמרת</span>
+          </div>
+          <div class="timer" id="timerDisplay">00:00:00</div>
+          <button class="clock-btn in" id="clockBtn" onclick="toggleClock()">➡️</button>
+          <div class="clock-label" id="clockBtnLabel">כניסה לעבודה</div>
+          <div id="shiftInfo" style="margin-top:20px;display:none">
+            <div style="background:var(--blue);color:#fff;border-radius:14px;padding:16px 24px;display:inline-block;text-align:right">
+              <div style="font-size:13px;opacity:.8">שעת כניסה</div>
+              <div style="font-size:22px;font-weight:700" id="clockInTime">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="clockError" class="error-box" style="display:none"></div>
+    </div>
+
+    <!-- ── Attendance ── -->
+    <div id="attendancePage" class="page">
+      <div class="page-header">
+        <h1>דוח נוכחות</h1>
+        <p id="attendanceMonthLabel">—</p>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val" id="totalDays">—</div><div class="stat-label">ימי עבודה</div></div>
+        <div class="stat-card green"><div class="stat-val" id="totalHours">—</div><div class="stat-label">שעות עבודה</div></div>
+        <div class="stat-card yellow"><div class="stat-val" id="overtimeHours">—</div><div class="stat-label">שעות נוספות</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">רשומות נוכחות</div>
+          <div style="display:flex;gap:8px">
+            <select id="attMonth" onchange="loadAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit">
+              <option value="1">ינואר</option><option value="2">פברואר</option>
+              <option value="3">מרץ</option><option value="4" selected>אפריל</option>
+              <option value="5">מאי</option><option value="6">יוני</option>
+              <option value="7">יולי</option><option value="8">אוגוסט</option>
+              <option value="9">ספטמבר</option><option value="10">אוקטובר</option>
+              <option value="11">נובמבר</option><option value="12">דצמבר</option>
+            </select>
+            <select id="attYear" onchange="loadAttendance()" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit">
+              <option value="2025">2025</option><option value="2026" selected>2026</option>
+            </select>
+          </div>
+        </div>
+        <div id="attendanceTable"><div class="loader"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+
+    <!-- ── Projects ── -->
+    <div id="projectsPage" class="page">
+      <div class="page-header">
+        <h1>פרויקטים</h1>
+        <p>הפרויקטים שאני משויך אליהם</p>
+      </div>
+      <div id="projectsList"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+
+    <!-- ── Payroll ── -->
+    <div id="payrollPage" class="page">
+      <div class="page-header">
+        <h1>תלושי שכר</h1>
+        <p>היסטוריית שכר</p>
+      </div>
+      <div class="card">
+        <div id="payrollTable"><div class="loader"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+
+    <!-- ── API Test ── -->
+    <div id="apiPage" class="page">
+      <div class="page-header">
+        <h1>🔧 בדיקת API</h1>
+        <p>בדוק endpoints ישירות</p>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">בקשה ידנית</div></div>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <select id="apiMethod" style="padding:8px;border:1px solid var(--border);border-radius:8px;font-family:inherit">
+            <option>GET</option><option>POST</option>
+          </select>
+          <input type="text" id="apiPath" placeholder="/api/attendance/my-summary/?month=4&year=2026"
+            style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit">
+          <button class="btn btn-primary btn-sm" onclick="runApiTest()" style="width:auto">שלח</button>
+        </div>
+        <textarea id="apiBody" placeholder='{"key":"value"}' rows="3"
+          style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:monospace;font-size:13px;margin-bottom:12px;resize:vertical"></textarea>
+        <div style="font-size:12px;color:var(--hint);margin-bottom:8px">תגובה:</div>
+        <pre id="apiResponse" style="background:#0F172A;color:#E2E8F0;padding:16px;border-radius:10px;font-size:12px;overflow-x:auto;max-height:400px;white-space:pre-wrap">—</pre>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:12px">קיצורי דרך</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button class="btn btn-sm" style="background:var(--blue-light);color:var(--blue)" onclick="quickApi('GET','/api/auth/worker-profile/')">👤 פרופיל עובד</button>
+          <button class="btn btn-sm" style="background:var(--blue-light);color:var(--blue)" onclick="quickApi('GET','/api/attendance/my-open/')">🔓 משמרת פתוחה</button>
+          <button class="btn btn-sm" style="background:var(--blue-light);color:var(--blue)" onclick="quickApi('GET','/api/attendance/my-summary/?month=4&year=2026')">📊 סיכום חודשי</button>
+          <button class="btn btn-sm" style="background:var(--blue-light);color:var(--blue)" onclick="quickApi('GET','/api/projects/my/')">🏗️ הפרויקטים שלי</button>
+          <button class="btn btn-sm" style="background:var(--blue-light);color:var(--blue)" onclick="quickApi('GET','/api/payroll/my/')">💰 תלושי שכר</button>
+          <button class="btn btn-sm" style="background:var(--blue-light);color:var(--blue)" onclick="quickApi('GET','/api/documents/my/')">📄 מסמכים</button>
+          <button class="btn btn-sm" style="background:var(--blue-light);color:var(--blue)" onclick="quickApi('GET','/api/dashboard/')">📈 דאשבורד</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const BASE = 'http://10.0.0.13:8000';
+let token = localStorage.getItem('wf_token') || '';
+let workerId = null;
+let clockedIn = false;
+let openRecordId = null;
+let timerInterval = null;
+let clockInSeconds = 0;
+
+// ── API helper ───────────────────────────────────────────────────────────────
+async function api(method, path, body = null) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(BASE + path, opts);
+  const data = await res.json().catch(() => ({}));
+  return { status: res.status, data };
+}
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const idNum = document.getElementById('idNumber').value.trim();
+  const pass  = document.getElementById('password').value;
+  const btn   = document.getElementById('loginBtn');
+  const err   = document.getElementById('loginError');
+  err.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'מתחבר...';
+  try {
+    const { status, data } = await api('POST', '/api/auth/login/', { id_number: idNum, password: pass });
+    if (status === 200) {
+      token = data.access;
+      localStorage.setItem('wf_token', token);
+      const user = data.user || {};
+      document.getElementById('sidebarName').textContent = user.full_name || idNum;
+      document.getElementById('sidebarRole').textContent = user.role || '';
+      document.getElementById('loginPage').classList.add('hidden');
+      document.getElementById('appShell').classList.add('visible');
+      await loadWorkerProfile();
+      await checkOpenShift();
+    } else {
+      err.textContent = data.error || 'שגיאה בכניסה';
+      err.style.display = 'block';
+    }
+  } catch(e) {
+    err.textContent = 'שגיאת רשת: ' + e.message;
+    err.style.display = 'block';
+  }
+  btn.disabled = false; btn.textContent = 'כניסה';
+}
+
+async function doLogout() {
+  token = ''; workerId = null;
+  localStorage.removeItem('wf_token');
+  clearInterval(timerInterval);
+  document.getElementById('loginPage').classList.remove('hidden');
+  document.getElementById('appShell').classList.remove('visible');
+}
+
+// ── Worker profile ───────────────────────────────────────────────────────────
+async function loadWorkerProfile() {
+  const { status, data } = await api('GET', '/api/auth/worker-profile/');
+  if (status === 200) workerId = data.id;
+}
+
+// ── Clock in/out ─────────────────────────────────────────────────────────────
+async function checkOpenShift() {
+  const { status, data } = await api('GET', '/api/attendance/my-open/');
+  if (status === 200 && data.open) {
+    openRecordId = data.record_id;
+    const ci = new Date(data.clock_in);
+    clockInSeconds = Math.floor((Date.now() - ci) / 1000);
+    setClocked(true, ci.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }));
+    startTimer();
+  }
+}
+
+function setClocked(on, timeStr) {
+  clockedIn = on;
+  document.getElementById('clockDot').className = 'dot' + (on ? ' active' : '');
+  document.getElementById('clockStatusText').textContent = on ? '⚡ במשמרת פעילה' : 'לא במשמרת';
+  document.getElementById('clockBtn').className = 'clock-btn ' + (on ? 'out' : 'in');
+  document.getElementById('clockBtn').textContent = on ? '⬛' : '▶️';
+  document.getElementById('clockBtnLabel').textContent = on ? 'יציאה מהעבודה' : 'כניסה לעבודה';
+  document.getElementById('clockBtnLabel').style.color = on ? 'var(--red)' : 'var(--blue)';
+  document.getElementById('shiftInfo').style.display = on ? 'block' : 'none';
+  if (timeStr) document.getElementById('clockInTime').textContent = timeStr;
+}
+
+function startTimer() {
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    clockInSeconds++;
+    const h = String(Math.floor(clockInSeconds / 3600)).padStart(2,'0');
+    const m = String(Math.floor((clockInSeconds % 3600) / 60)).padStart(2,'0');
+    const s = String(clockInSeconds % 60).padStart(2,'0');
+    document.getElementById('timerDisplay').textContent = `${h}:${m}:${s}`;
+  }, 1000);
+}
+
+async function toggleClock() {
+  const err = document.getElementById('clockError');
+  err.style.display = 'none';
+  document.getElementById('clockBtn').disabled = true;
+
+  if (!clockedIn) {
+    if (!workerId) { err.textContent = 'פרופיל עובד לא נמצא'; err.style.display='block'; return; }
+    const { status, data } = await api('POST', '/api/attendance/clock-in/', { worker_id: workerId });
+    if (status === 200 || status === 201) {
+      openRecordId = data.record_id;
+      clockInSeconds = 0;
+      const now = new Date();
+      setClocked(true, now.toLocaleTimeString('he-IL', { hour:'2-digit', minute:'2-digit' }));
+      startTimer();
+    } else {
+      err.textContent = data.error || 'שגיאה בכניסה';
+      err.style.display = 'block';
+    }
+  } else {
+    const { status, data } = await api('POST', `/api/attendance/clock-out/${openRecordId}/`, {});
+    if (status === 200 || status === 201) {
+      clearInterval(timerInterval);
+      clockInSeconds = 0;
+      document.getElementById('timerDisplay').textContent = '00:00:00';
+      setClocked(false);
+      openRecordId = null;
+    } else {
+      err.textContent = data.error || 'שגיאה ביציאה';
+      err.style.display = 'block';
+    }
+  }
+  document.getElementById('clockBtn').disabled = false;
+}
+
+// ── Attendance ────────────────────────────────────────────────────────────────
+async function loadAttendance() {
+  const month = document.getElementById('attMonth').value;
+  const year  = document.getElementById('attYear').value;
+  const months = ['','ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  document.getElementById('attendanceMonthLabel').textContent = `${months[month]} ${year}`;
+  document.getElementById('attendanceTable').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+
+  const { status, data } = await api('GET', `/api/attendance/my-summary/?month=${month}&year=${year}`);
+  if (status === 200) {
+    document.getElementById('totalDays').textContent  = data.total_days || 0;
+    document.getElementById('totalHours').textContent = (data.total_hours || 0).toFixed(1);
+    document.getElementById('overtimeHours').textContent = (data.overtime_hours || 0).toFixed(1);
+    const logs = data.logs || [];
+    if (!logs.length) {
+      document.getElementById('attendanceTable').innerHTML = '<div class="loader">אין רשומות לחודש זה</div>';
+      return;
+    }
+    document.getElementById('attendanceTable').innerHTML = `
+      <table>
+        <thead><tr><th>תאריך</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th>פרויקט</th><th>סטטוס</th></tr></thead>
+        <tbody>${logs.map(l => `
+          <tr>
+            <td>${l.date || '—'}</td>
+            <td>${l.clock_in_str || '—'}</td>
+            <td>${l.clock_out_str || '—'}</td>
+            <td><strong>${(l.hours_worked || 0).toFixed(1)}</strong></td>
+            <td>${l.project_name || '—'}</td>
+            <td><span class="badge badge-${l.status === 'approved' ? 'green' : l.status === 'open' ? 'yellow' : 'blue'}">${l.status || '—'}</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } else {
+    document.getElementById('attendanceTable').innerHTML = `<div class="error-box">שגיאה: ${JSON.stringify(data)}</div>`;
+  }
+}
+
+// ── Projects ──────────────────────────────────────────────────────────────────
+async function loadProjects() {
+  document.getElementById('projectsList').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const { status, data } = await api('GET', '/api/projects/my/');
+  if (status === 200) {
+    if (!data.length) {
+      document.getElementById('projectsList').innerHTML = '<div class="loader">אין פרויקטים</div>';
+      return;
+    }
+    document.getElementById('projectsList').innerHTML = data.map(p => `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🏗️ ${p.name}</div>
+            <div style="color:var(--muted);font-size:13px;margin-top:4px">${p.site_address || ''}</div>
+          </div>
+          <span class="badge badge-${p.status === 'active' ? 'green' : p.status === 'completed' ? 'blue' : 'yellow'}">${p.status}</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted)">${p.description || ''}</div>
+        ${p.site_lat ? `<div style="margin-top:12px;font-size:12px;color:var(--hint)">📍 ${p.site_lat}, ${p.site_lng} (רדיוס: ${p.gps_radius_m}מ')</div>` : ''}
+        <div style="margin-top:8px;font-size:12px;color:var(--hint)">📅 ${p.start_date || '—'} → ${p.end_date || '—'}</div>
+      </div>`).join('');
+  } else {
+    document.getElementById('projectsList').innerHTML = `<div class="error-box">שגיאה: ${JSON.stringify(data)}</div>`;
+  }
+}
+
+// ── Payroll ───────────────────────────────────────────────────────────────────
+async function loadPayroll() {
+  document.getElementById('payrollTable').innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  const { status, data } = await api('GET', '/api/payroll/my/');
+  if (status === 200) {
+    if (!data.length) {
+      document.getElementById('payrollTable').innerHTML = '<div class="loader">אין תלושי שכר</div>';
+      return;
+    }
+    const months = ['','ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+    document.getElementById('payrollTable').innerHTML = `
+      <table>
+        <thead><tr><th>חודש</th><th>ימים</th><th>שעות</th><th>ברוטו</th><th>ניכויים</th><th>נטו</th><th>סטטוס</th></tr></thead>
+        <tbody>${data.map(p => `
+          <tr>
+            <td><strong>${months[p.month] || p.month}/${p.year}</strong></td>
+            <td>${p.days_worked || '—'}</td>
+            <td>${p.hours_worked || '—'}</td>
+            <td>₪${Number(p.gross_salary || 0).toLocaleString()}</td>
+            <td style="color:var(--red)">-₪${Number((p.gross_salary||0)-(p.net_salary||0)).toLocaleString()}</td>
+            <td><strong style="color:var(--green)">₪${Number(p.net_salary || 0).toLocaleString()}</strong></td>
+            <td><span class="badge badge-${p.status === 'approved' ? 'green' : 'yellow'}">${p.status}</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } else {
+    document.getElementById('payrollTable').innerHTML = `<div class="error-box">שגיאה: ${JSON.stringify(data)}</div>`;
+  }
+}
+
+// ── API test ──────────────────────────────────────────────────────────────────
+async function runApiTest() {
+  const method = document.getElementById('apiMethod').value;
+  const path   = document.getElementById('apiPath').value;
+  const body   = document.getElementById('apiBody').value;
+  document.getElementById('apiResponse').textContent = 'שולח...';
+  let parsed = null;
+  try { parsed = body ? JSON.parse(body) : null; } catch(e) {}
+  const { status, data } = await api(method, path, parsed);
+  document.getElementById('apiResponse').textContent =
+    `HTTP ${status}\n\n${JSON.stringify(data, null, 2)}`;
+}
+
+function quickApi(method, path) {
+  document.getElementById('apiMethod').value = method;
+  document.getElementById('apiPath').value = path;
+  document.getElementById('apiBody').value = '';
+  showPage('api');
+  runApiTest();
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(name + 'Page').classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name === 'attendance') loadAttendance();
+  if (name === 'projects')   loadProjects();
+  if (name === 'payroll')    loadPayroll();
+}
+
+// ── Auto-login if token exists ────────────────────────────────────────────────
+window.onload = async () => {
+  if (token) {
+    document.getElementById('loginPage').classList.add('hidden');
+    document.getElementById('appShell').classList.add('visible');
+    document.getElementById('sidebarName').textContent = 'מתחבר...';
+    await loadWorkerProfile();
+    await checkOpenShift();
+    // Try to get user info
+    const { status, data } = await api('GET', '/api/auth/me/');
+    if (status === 200) {
+      document.getElementById('sidebarName').textContent = data.full_name || '—';
+      document.getElementById('sidebarRole').textContent = data.role || '—';
+    } else {
+      doLogout();
+    }
+  }
+};
+</script>
+</body>
+</html>
