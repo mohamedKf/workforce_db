@@ -3,5 +3,3 @@ builder = "nixpacks"
 
 [deploy]
 startCommand = "python manage.py migrate && gunicorn workforce_backend.wsgi --bind 0.0.0.0:$PORT --log-file -"
-healthcheckPath = "/api/auth/login/"
-healthcheckTimeout = 30
