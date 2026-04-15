@@ -24,10 +24,12 @@ class UserManager(BaseUserManager):
 
 class User(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = [
-        ('manager',    'מנהל'),
-        ('worker',     'עובד'),
+        ('owner', 'בעלים'),
+        ('manager', 'מנהל'),
+        ('worker', 'עובד'),
         ('freelancer', 'פרילנסר'),
     ]
+
 
     id_number            = models.CharField(max_length=20, unique=True)
     phone                = models.CharField(max_length=20, blank=True)
@@ -70,6 +72,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def is_freelancer(self):
         return self.role == 'freelancer'
+
+    @property
+    def is_owner(self):
+        return self.role == 'owner'
+
+    @property
+    def is_manager_or_above(self):
+        return self.role in ['owner', 'manager']
 
 
 # ── Company (for registration codes) ──────────────────────────────────────
@@ -143,6 +153,10 @@ class Worker(models.Model):
     has_other_income         = models.BooleanField(default=False)
 
     # Pension & funds
+
+    has_pension = models.BooleanField(default=False)
+    has_study_fund = models.BooleanField(default=False)
+
     pension_rate_employee    = models.DecimalField(max_digits=5, decimal_places=2, default=6.0)
     pension_rate_employer    = models.DecimalField(max_digits=5, decimal_places=2, default=6.5)
     severance_rate           = models.DecimalField(max_digits=5, decimal_places=2, default=8.33)

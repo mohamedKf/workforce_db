@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password, check_password
 from django.db.models import Sum, Count
-
+from django.conf import settings
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -88,23 +88,29 @@ class RegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        # Check registration code against settings
+        code        = request.data.get('registration_code', '').strip()
+        server_code = getattr(settings, 'REGISTRATION_CODE', '')
+
+
+        if server_code and code.lower() != server_code.lower():
+            return Response({'error': 'קוד הרשמה שגוי'}, status=400)
+
         serializer = RegisterSerializer(data=request.data)
         if not serializer.is_valid():
+
             return Response(serializer.errors, status=400)
 
-        user = serializer.save()
+        user      = serializer.save()
         id_number = user.id_number
 
-        # Check if a worker already exists with this ID number
         try:
             worker = Worker.objects.get(id_number=id_number)
-            # Link existing worker to this user
             if worker.user is None:
                 worker.user = user
                 worker.save(update_fields=['user'])
             needs_profile = False
         except Worker.DoesNotExist:
-            # Create minimal worker profile
             Worker.objects.create(
                 user           = user,
                 id_number      = id_number,

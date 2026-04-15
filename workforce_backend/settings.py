@@ -10,6 +10,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'fallback-dev-key')
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '10.0.0.13', '*']
 AUTHENTICATION_BACKENDS = ['django.contrib.auth.backends.ModelBackend']
+REGISTRATION_CODE = os.getenv('REGISTRATION_CODE', '')
 
 
 INSTALLED_APPS = [
