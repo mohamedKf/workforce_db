@@ -28,7 +28,7 @@ from .views import (
     FreelancerListCreateView, FreelancerDetailView,
     FreelancerPaymentListView, FreelancerPaymentDetailView,
     # Shift Corrections
-    ShiftCorrectionListCreateView, ShiftCorrectionManagerView, ShiftCorrectionReviewView,
+    ShiftCorrectionListCreateView, ShiftCorrectionManagerView, ShiftCorrectionReviewView, CompleteProfileView,
 )
 
 urlpatterns = [
@@ -42,6 +42,7 @@ urlpatterns = [
     path('auth/me/',               MeView.as_view()),
     path('auth/change-password/',  ChangePasswordView.as_view()),
     path('auth/worker-profile/',   WorkerProfileView.as_view()),       # ★ mobile
+    path('auth/complete-profile/', CompleteProfileView.as_view()),
 
     # ── Workers ───────────────────────────────────────────────────────────────
     path('workers/',                          WorkerListCreateView.as_view()),

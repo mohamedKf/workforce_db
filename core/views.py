@@ -82,32 +82,158 @@ class LoginView(APIView):
         return Response(_issue_tokens(user))
 
 
+# ── Replace RegisterView in views.py ─────────────────────────────────────────
+
 class RegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
-            # Auto-create minimal worker profile
-            Worker.objects.get_or_create(
-                id_number=user.id_number,
-                defaults={
-                    'user':           user,
-                    'first_name':     user.full_name.split()[0],
-                    'last_name':      ' '.join(user.full_name.split()[1:]) or '',
-                    'phone':          user.phone,
-                    'gender':         'זכר',
-                    'marital_status': 'רווק',
-                    'start_date':     date.today(),
-                    'wage_type':      'hourly',
-                    'hourly_rate':    0,
-                    'daily_rate':     0,
-                    'monthly_salary': 0,
-                }
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        user = serializer.save()
+        id_number = user.id_number
+
+        # Check if a worker already exists with this ID number
+        try:
+            worker = Worker.objects.get(id_number=id_number)
+            # Link existing worker to this user
+            if worker.user is None:
+                worker.user = user
+                worker.save(update_fields=['user'])
+            needs_profile = False
+        except Worker.DoesNotExist:
+            # Create minimal worker profile
+            Worker.objects.create(
+                user           = user,
+                id_number      = id_number,
+                first_name     = user.full_name.split()[0],
+                last_name      = ' '.join(user.full_name.split()[1:]) or '',
+                phone          = user.phone,
+                gender         = 'זכר',
+                marital_status = 'רווק',
+                start_date     = date.today(),
+                wage_type      = 'hourly',
+                hourly_rate    = 0,
+                daily_rate     = 0,
+                monthly_salary = 0,
             )
-            return Response(_issue_tokens(user), status=201)
-        return Response(serializer.errors, status=400)
+            needs_profile = True
+
+        tokens = _issue_tokens(user)
+        tokens['needs_profile'] = needs_profile
+        return Response(tokens, status=201)
+
+
+
+class CompleteProfileView(APIView):
+    """Worker submits full profile after registration."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        worker = _get_worker(request.user)
+        if not worker:
+            return Response({'error': 'Worker profile not found'}, status=404)
+
+        data = request.data
+
+        # Personal
+        if data.get('first_name'):     worker.first_name     = data['first_name']
+        if data.get('last_name'):      worker.last_name      = data['last_name']
+        if data.get('gender'):         worker.gender         = data['gender']
+        if data.get('birth_date'):     worker.birth_date     = data['birth_date']
+        if data.get('marital_status'): worker.marital_status = data['marital_status']
+
+        # Contact
+        if data.get('phone'):          worker.phone          = data['phone']
+        if data.get('email'):          worker.email          = data['email']
+        if data.get('address'):        worker.address        = data['address']
+        if data.get('city'):           worker.city           = data['city']
+
+        # Employment
+        if data.get('position'):       worker.position       = data['position']
+        if data.get('start_date'):     worker.start_date     = data['start_date']
+
+        # Bank
+        if data.get('bank_name'):      worker.bank_name      = data['bank_name']
+        if data.get('bank_branch'):    worker.bank_branch    = data['bank_branch']
+        if data.get('bank_account'):   worker.bank_account   = data['bank_account']
+
+        worker.save()
+
+        # Handle children
+        children = data.get('children', [])
+        if children:
+            worker.children.all().delete()
+            for child in children:
+                WorkerChild.objects.create(
+                    worker     = worker,
+                    name       = child.get('name', ''),
+                    id_number  = child.get('id_number', ''),
+                    birth_date = child.get('birth_date'),
+                    gender     = child.get('gender', 'זכר'),
+                )
+
+        return Response({
+            'message': 'פרופיל עודכן בהצלחה',
+            'worker':  WorkerMobileSerializer(worker).data,
+        })
+
+# ── Add CompleteProfileView to views.py ───────────────────────────────────────
+
+class CompleteProfileView(APIView):
+    """Worker submits full profile after registration."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        worker = _get_worker(request.user)
+        if not worker:
+            return Response({'error': 'Worker profile not found'}, status=404)
+
+        data = request.data
+
+        # Personal
+        if data.get('first_name'):   worker.first_name     = data['first_name']
+        if data.get('last_name'):    worker.last_name      = data['last_name']
+        if data.get('gender'):       worker.gender         = data['gender']
+        if data.get('birth_date'):   worker.birth_date     = data['birth_date']
+        if data.get('marital_status'): worker.marital_status = data['marital_status']
+
+        # Contact
+        if data.get('phone'):        worker.phone          = data['phone']
+        if data.get('email'):        worker.email          = data['email']
+        if data.get('address'):      worker.address        = data['address']
+        if data.get('city'):         worker.city           = data['city']
+
+        # Employment
+        if data.get('position'):     worker.position       = data['position']
+        if data.get('start_date'):   worker.start_date     = data['start_date']
+
+        # Bank
+        if data.get('bank_name'):    worker.bank_name      = data['bank_name']
+        if data.get('bank_branch'):  worker.bank_branch    = data['bank_branch']
+        if data.get('bank_account'): worker.bank_account   = data['bank_account']
+
+        worker.save()
+
+        # Handle children
+        children = data.get('children', [])
+        if children:
+            worker.children.all().delete()
+            for child in children:
+                WorkerChild.objects.create(
+                    worker     = worker,
+                    name       = child.get('name', ''),
+                    id_number  = child.get('id_number', ''),
+                    birth_date = child.get('birth_date'),
+                    gender     = child.get('gender', 'זכר'),
+                )
+
+        return Response({
+            'message': 'פרופיל עודכן בהצלחה',
+            'worker':  WorkerMobileSerializer(worker).data,
+        })
 
 class PinLoginView(APIView):
     permission_classes = [AllowAny]
