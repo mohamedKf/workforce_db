@@ -5,12 +5,15 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password, check_password
 from django.db.models import Sum, Count
 from django.conf import settings
+from django.core.exceptions import SuspiciousFileOperation
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from .cloudinary_helpers import upload_file, signed_url, delete_file
 
 from .models import (User, Company, Worker, WorkerChild, Form101, Form106,
                      Project, ProjectFile, ProjectWorkLog, ProjectSitePhoto,
@@ -91,14 +94,14 @@ class RegisterView(APIView):
         # Check registration code against settings
         code        = request.data.get('registration_code', '').strip()
         server_code = getattr(settings, 'REGISTRATION_CODE', '')
-
+        print(f"CODE RECEIVED: '{code}' | SERVER CODE: '{server_code}'")
 
         if server_code and code.lower() != server_code.lower():
             return Response({'error': 'קוד הרשמה שגוי'}, status=400)
 
         serializer = RegisterSerializer(data=request.data)
         if not serializer.is_valid():
-
+            print(f"SERIALIZER ERRORS: {serializer.errors}")
             return Response(serializer.errors, status=400)
 
         user      = serializer.save()
@@ -456,10 +459,40 @@ class ProjectFileView(generics.ListCreateAPIView):
     def get_queryset(self):
         return ProjectFile.objects.filter(project_id=self.kwargs['pk'])
 
-    def perform_create(self, serializer):
-        project  = Project.objects.get(id=self.kwargs['pk'])
-        file_obj = self.request.FILES.get('file')
-        serializer.save(project=project, file_name=file_obj.name if file_obj else 'קובץ')
+    def create(self, request, *args, **kwargs):
+        try:
+            project = Project.objects.get(id=self.kwargs['pk'])
+        except Project.DoesNotExist:
+            return Response({'error': 'פרויקט לא נמצא'}, status=404)
+
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({'error': 'לא נשלח קובץ'}, status=400)
+
+        # Upload to Cloudinary
+        today = date.today()
+        try:
+            public_id, result = upload_file(
+                file_obj,
+                folder=f'workforce/project_files/{project.id}/{today.year}/{today.month:02d}',
+                prefix='proj',
+                resource_type='auto',
+            )
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+
+        pf = ProjectFile.objects.create(
+            project              = project,
+            file_url             = result.get('secure_url', ''),
+            cloudinary_public_id = public_id,
+            file_name            = file_obj.name,
+            file_type            = request.data.get('file_type', 'other'),
+            description          = request.data.get('description', ''),
+        )
+        return Response(
+            ProjectFileSerializer(pf, context={'request': request}).data,
+            status=201,
+        )
 
 
 class ProjectFileDeleteView(generics.DestroyAPIView):
@@ -501,6 +534,10 @@ class ProjectBlueprintsView(APIView):
     """
     GET /api/projects/<pk>/blueprints/
     Returns blueprint, map, and document files for the slide-down panel.
+
+    Returns the Cloudinary URL when available (file_url field), falling back
+    to the legacy local file path only for very old records. Rows without
+    any usable URL are skipped — better an empty list than a broken link.
     """
     permission_classes = [IsAuthenticated]
 
@@ -510,16 +547,30 @@ class ProjectBlueprintsView(APIView):
             .filter(project_id=pk, file_type__in=['blueprint', 'map', 'document'])
             .order_by('file_type', 'file_name')
         )
-        return Response([
-            {
+        out = []
+        for f in files:
+            url = ''
+            # Prefer Cloudinary URL (set on all new uploads since round 9 hotfix)
+            if getattr(f, 'file_url', None):
+                url = f.file_url
+            elif f.file:
+                # Legacy local-storage row. Try to serve it, but if the path
+                # is outside MEDIA_ROOT (e.g. an old absolute Windows path),
+                # `f.file.url` will raise — skip those rows silently.
+                try:
+                    url = request.build_absolute_uri(f.file.url)
+                except (ValueError, SuspiciousFileOperation):
+                    continue
+            if not url:
+                continue
+            out.append({
                 'id':          f.id,
                 'name':        f.file_name,
                 'type':        f.file_type,
                 'description': f.description,
-                'url':         request.build_absolute_uri(f.file.url) if f.file else '',
-            }
-            for f in files
-        ])
+                'url':         url,
+            })
+        return Response(out)
 
 
 class ProjectNotesView(APIView):
@@ -590,6 +641,8 @@ class SitePhotoView(APIView):
     """
     GET  /api/projects/<pk>/photos/  — list site photos
     POST /api/projects/<pk>/photos/  — upload a new photo (multipart)
+
+    Photos are uploaded to Cloudinary and served via signed URLs.
     """
     permission_classes = [IsAuthenticated]
     parser_classes     = [MultiPartParser, FormParser]
@@ -599,7 +652,7 @@ class SitePhotoView(APIView):
         return Response([
             {
                 'id':       p.id,
-                'url':      request.build_absolute_uri(p.photo.url),
+                'url':      signed_url(p.cloudinary_public_id) if p.cloudinary_public_id else '',
                 'caption':  p.caption,
                 'taken_by': p.taken_by.full_name if p.taken_by else '',
                 'taken_at': p.taken_at.isoformat(),
@@ -617,16 +670,29 @@ class SitePhotoView(APIView):
         if not photo_file:
             return Response({'error': 'לא נשלחה תמונה'}, status=400)
 
+        # Upload to Cloudinary
+        today = date.today()
+        try:
+            public_id, result = upload_file(
+                photo_file,
+                folder=f'workforce/site_photos/{project.id}/{today.year}/{today.month:02d}',
+                prefix='site',
+                resource_type='image',
+            )
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+
         worker = _get_worker(request.user)
         photo  = ProjectSitePhoto.objects.create(
-            project  = project,
-            photo    = photo_file,
-            caption  = request.data.get('caption', ''),
-            taken_by = worker,
+            project              = project,
+            photo_url            = result.get('secure_url', ''),
+            cloudinary_public_id = public_id,
+            caption              = request.data.get('caption', ''),
+            taken_by             = worker,
         )
         return Response({
             'id':       photo.id,
-            'url':      request.build_absolute_uri(photo.photo.url),
+            'url':      signed_url(public_id),
             'caption':  photo.caption,
             'taken_at': photo.taken_at.isoformat(),
         }, status=201)
@@ -982,6 +1048,10 @@ class MyInvoicesView(APIView):
     """
     GET  /api/invoices/my/  — worker's submitted invoices
     POST /api/invoices/my/  — worker submits a new invoice photo
+                              (optional delivery_note photo as well)
+
+    Both invoice photo and optional delivery note are uploaded to
+    Cloudinary and served via signed URLs.
     """
     permission_classes = [IsAuthenticated]
     parser_classes     = [MultiPartParser, FormParser]
@@ -1003,7 +1073,8 @@ class MyInvoicesView(APIView):
                 'invoice_date':  inv.invoice_date.isoformat() if inv.invoice_date else '',
                 'status':        inv.status,
                 'manager_notes': inv.manager_notes,
-                'image_url':     request.build_absolute_uri(inv.image.url) if inv.image else '',
+                'image_url':         signed_url(inv.image_cloudinary_id) if inv.image_cloudinary_id else '',
+                'delivery_note_url': signed_url(inv.delivery_note_cloudinary_id) if inv.delivery_note_cloudinary_id else '',
                 'submitted_at':  inv.submitted_at.isoformat() if inv.submitted_at else '',
             }
             for inv in qs
@@ -1013,15 +1084,22 @@ class MyInvoicesView(APIView):
         worker = _get_worker(request.user)
         if not worker:
             return Response({'error': 'פרופיל עובד לא נמצא'}, status=404)
+
         image = request.FILES.get('image')
         if not image:
             return Response({'error': 'נדרשת תמונה של החשבונית'}, status=400)
+
+        # Optional delivery note
+        delivery_note = request.FILES.get('delivery_note')
+
         try:
             amount = float(request.data.get('amount', 0))
         except (ValueError, TypeError):
             return Response({'error': 'סכום לא תקין'}, status=400)
         try:
-            inv_date = date.fromisoformat(request.data.get('invoice_date', date.today().isoformat()))
+            inv_date = date.fromisoformat(
+                request.data.get('invoice_date', date.today().isoformat())
+            )
         except ValueError:
             inv_date = date.today()
 
@@ -1032,21 +1110,54 @@ class MyInvoicesView(APIView):
             except Project.DoesNotExist:
                 pass
 
+        # Upload invoice image to Cloudinary
+        try:
+            image_pid, image_result = upload_file(
+                image,
+                folder=f'workforce/invoices/{inv_date.year}/{inv_date.month:02d}',
+                prefix='inv',
+                resource_type='image',
+            )
+        except ValueError as e:
+            return Response({'error': f'שגיאה בהעלאת חשבונית: {e}'}, status=400)
+
+        # Optional delivery note upload
+        dn_pid = ''
+        dn_url = ''
+        if delivery_note:
+            try:
+                dn_pid, dn_result = upload_file(
+                    delivery_note,
+                    folder=f'workforce/delivery_notes/{inv_date.year}/{inv_date.month:02d}',
+                    prefix='dn',
+                    resource_type='image',
+                )
+                dn_url = dn_result.get('secure_url', '')
+            except ValueError as e:
+                # If delivery note upload fails, clean up the invoice we just uploaded
+                delete_file(image_pid)
+                return Response({'error': f'שגיאה בהעלאת תעודת משלוח: {e}'}, status=400)
+
         invoice = MaterialInvoice.objects.create(
-            worker        = worker,
-            project       = project,
-            supplier_name = request.data.get('supplier_name', ''),
-            description   = request.data.get('description', ''),
-            amount        = amount,
-            invoice_date  = inv_date,
-            image         = image,
-            status        = 'pending',
+            worker          = worker,
+            project         = project,
+            supplier_name   = request.data.get('supplier_name', ''),
+            description     = request.data.get('description', ''),
+            amount          = amount,
+            invoice_date    = inv_date,
+            image_url                   = image_result.get('secure_url', ''),
+            image_cloudinary_id         = image_pid,
+            delivery_note_url           = dn_url,
+            delivery_note_cloudinary_id = dn_pid,
+            status          = 'pending',
         )
         return Response({
-            'id':           invoice.id,
-            'status':       invoice.status,
-            'amount':       float(invoice.amount),
-            'submitted_at': invoice.submitted_at.isoformat(),
+            'id':                invoice.id,
+            'status':            invoice.status,
+            'amount':            float(invoice.amount),
+            'image_url':         signed_url(image_pid),
+            'delivery_note_url': signed_url(dn_pid) if dn_pid else '',
+            'submitted_at':      invoice.submitted_at.isoformat(),
         }, status=201)
 
 
@@ -1076,17 +1187,27 @@ class MyDocumentsView(APIView):
             .select_related('project')
             .order_by('-uploaded_at')
         )
-        return Response([
-            {
+        out = []
+        for f in files:
+            url = ''
+            if getattr(f, 'file_url', None):
+                url = f.file_url
+            elif f.file:
+                try:
+                    url = request.build_absolute_uri(f.file.url)
+                except (ValueError, SuspiciousFileOperation):
+                    continue
+            if not url:
+                continue
+            out.append({
                 'id':          f.id,
                 'name':        f.file_name,
                 'description': f.description,
                 'project':     f.project.name,
                 'date':        f.uploaded_at.strftime('%Y-%m-%d') if f.uploaded_at else '',
-                'url':         request.build_absolute_uri(f.file.url) if f.file else '',
-            }
-            for f in files
-        ])
+                'url':         url,
+            })
+        return Response(out)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

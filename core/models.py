@@ -358,13 +358,17 @@ class ProjectFile(models.Model):
         ('other',     'אחר'),
     ]
 
-    project     = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='files')
-    file        = models.FileField(upload_to='project_files/%Y/%m/')
-    file_name   = models.CharField(max_length=255)
-    file_type   = models.CharField(max_length=20, choices=FILE_TYPE_CHOICES, default='other')
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='files')
+    # Legacy local storage — kept for backward compat, will be removed later
+    file = models.FileField(upload_to='project_files/%Y/%m/', null=True, blank=True)
+    # Cloudinary
+    file_url = models.URLField(max_length=500, blank=True, default='')
+    cloudinary_public_id = models.CharField(max_length=255, blank=True, default='')
+
+    file_name = models.CharField(max_length=255)
+    file_type = models.CharField(max_length=20, choices=FILE_TYPE_CHOICES, default='other')
     description = models.TextField(blank=True, default='')
     uploaded_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-
     class Meta:
         db_table = 'project_files_dev'
 
@@ -438,6 +442,16 @@ class PayrollRecord(models.Model):
     total_employer_cost  = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status               = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     notes                = models.TextField(blank=True)
+    # Generated payslip PDF (uploaded to Cloudinary). Populated when the
+    # manager clicks "Generate PDF" on the payroll page.
+    # Generated payslip PDF (uploaded to Cloudinary). Populated when the
+    # manager clicks "Generate PDF" on the payroll page.
+    # null=True on payslip_url because MySQL TEXT columns cannot have a
+    # default value, and the desktop's raw INSERT doesn't supply this column
+    # — so it must accept NULL when no PDF has been generated yet.
+    payslip_url           = models.TextField(blank=True, null=True, default=None)
+    payslip_cloudinary_id = models.CharField(max_length=255, blank=True, default='')
+    payslip_generated_at  = models.DateTimeField(null=True, blank=True)
     created_at           = models.DateTimeField(auto_now_add=True)
     updated_at           = models.DateTimeField(auto_now=True)
 
@@ -459,18 +473,32 @@ class MaterialInvoice(models.Model):
         ('rejected', 'נדחה'),
     ]
 
-    worker        = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='invoices')
-    project       = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices')
+    # null=True so managers can create entries from desktop without being a worker
+    worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='invoices',
+                               null=True, blank=True)
+    # Tracks who created the entry when it wasn't a worker (e.g. manager from desktop)
+    created_by_user = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, blank=True,
+                                        related_name='created_invoices')
+    project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True, related_name='invoices')
     supplier_name = models.CharField(max_length=200, blank=True)
-    description   = models.TextField(blank=True, default='')
-    amount        = models.DecimalField(max_digits=10, decimal_places=2)
-    invoice_date  = models.DateField()
-    image         = models.ImageField(upload_to='invoices/%Y/%m/', null=True, blank=True)
-    pdf           = models.FileField(upload_to='invoices/%Y/%m/', null=True, blank=True)
-    status        = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    description = models.TextField(blank=True, default='')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    invoice_date = models.DateField()
+
+    # Legacy local storage — kept for backward compat
+    image = models.ImageField(upload_to='invoices/%Y/%m/', null=True, blank=True)
+    pdf = models.FileField(upload_to='invoices/%Y/%m/', null=True, blank=True)
+    # Cloudinary — invoice/receipt photo
+    image_url = models.URLField(max_length=500, blank=True, default='')
+    image_cloudinary_id = models.CharField(max_length=255, blank=True, default='')
+    # Cloudinary — delivery note (תעודת משלוח)
+    delivery_note_url = models.URLField(max_length=500, blank=True, default='')
+    delivery_note_cloudinary_id = models.CharField(max_length=255, blank=True, default='')
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     manager_notes = models.TextField(blank=True)
-    submitted_at  = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    reviewed_at   = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'material_invoices_dev'
@@ -487,6 +515,14 @@ class Freelancer(models.Model):
     company      = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, related_name='freelancers')
     full_name    = models.CharField(max_length=100)
     id_number    = models.CharField(max_length=20, unique=True)
+    tax_id_number = models.CharField(max_length=20, blank=True, default='')
+    # Default withholding tax rate for this freelancer. Most have a פטור and
+    # default to 0; new agreements pre-fill this value but each agreement can
+    # still override it per-project.
+    default_withholding_tax_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0,
+        help_text='Default ניכוי מס במקור rate (%). 0 = פטור.',
+    )
     phone        = models.CharField(max_length=20)
     email        = models.EmailField(blank=True)
     specialty    = models.CharField(max_length=100, blank=True)
@@ -522,7 +558,9 @@ class FreelancerAgreement(models.Model):
     status              = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     start_date          = models.DateField(null=True, blank=True)
     end_date            = models.DateField(null=True, blank=True)
-    contract_file       = models.FileField(upload_to='freelancer_contracts/%Y/%m/', null=True, blank=True)
+    contract_file = models.FileField(upload_to='freelancer_contracts/%Y/%m/', null=True, blank=True)
+    contract_file_url = models.URLField(max_length=500, blank=True, default='')
+    cloudinary_public_id = models.CharField(max_length=255, blank=True, default='')
     notes               = models.TextField(blank=True, default='')
     created_at          = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_at          = models.DateTimeField(auto_now=True)
@@ -561,7 +599,9 @@ class FreelancerPayment(models.Model):
     withholding_tax_rate   = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     withholding_tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     net_amount             = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    invoice_file           = models.FileField(upload_to='freelancer_invoices/%Y/%m/', null=True, blank=True)
+    invoice_file = models.FileField(upload_to='freelancer_invoices/%Y/%m/', null=True, blank=True)
+    invoice_file_url = models.URLField(max_length=500, blank=True, default='')
+    cloudinary_public_id = models.CharField(max_length=255, blank=True, default='')
     notes                  = models.TextField(blank=True)
     created_at             = models.DateTimeField(auto_now_add=True)
 
@@ -604,9 +644,13 @@ class ProjectWorkLog(models.Model):
 
 class ProjectSitePhoto(models.Model):
     """Photos uploaded from the job site."""
-    project     = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='site_photos')
-    photo       = models.ImageField(upload_to='site_photos/%Y/%m/')
-    caption     = models.CharField(max_length=255, blank=True)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='site_photos')
+    # Legacy local storage
+    photo = models.ImageField(upload_to='site_photos/%Y/%m/', null=True, blank=True)
+    # Cloudinary
+    photo_url = models.URLField(max_length=500, blank=True, default='')
+    cloudinary_public_id = models.CharField(max_length=255, blank=True, default='')
+    caption = models.CharField(max_length=255, blank=True)
     taken_by    = models.ForeignKey(Worker, on_delete=models.SET_NULL, null=True, blank=True)
     taken_at    = models.DateTimeField(auto_now_add=True)
 
@@ -648,3 +692,127 @@ class ShiftCorrection(models.Model):
 
     def __str__(self):
         return f"{self.worker.full_name} - {self.date} ({self.status})"
+
+
+# ── Payroll Tax Brackets & Settings ────────────────────────────────────────
+#
+# Israeli payroll math (income tax brackets, BL/health rates, credit point
+# value, etc.) is now stored in the database instead of hardcoded constants.
+# This lets the owner update the law-defined numbers without a code release.
+#
+# Two tables:
+#   payroll_tax_brackets_dev — list of brackets in order (1-7 typically)
+#   payroll_settings_dev     — key/value pairs for everything else
+#
+# The engine reads these once per calculation (cached in-memory for 60s)
+# and falls back to hardcoded 2026 defaults if either table is empty.
+
+class PayrollTaxBracket(models.Model):
+    """
+    A single Israeli income-tax bracket.
+
+    Brackets are evaluated in order of `bracket_index`. The last bracket
+    (highest income) should have ceiling=NULL, meaning "no upper limit".
+    """
+    bracket_index = models.IntegerField(unique=True)
+    ceiling       = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        null=True, blank=True,
+        help_text='Monthly income ceiling in ₪. Leave blank for the top bracket (no limit).'
+    )
+    rate          = models.DecimalField(
+        max_digits=6, decimal_places=4,
+        help_text='Tax rate as decimal: 0.20 means 20%. 0.50 for top bracket includes mas yesef.'
+    )
+    notes         = models.CharField(max_length=200, blank=True, default='')
+    updated_at    = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'payroll_tax_brackets_dev'
+        ordering = ['bracket_index']
+        verbose_name = 'מדרגת מס'
+        verbose_name_plural = 'מדרגות מס'
+
+    def __str__(self):
+        ceiling_str = f'≤ ₪{self.ceiling:,.0f}' if self.ceiling else 'מעל לכל המדרגות'
+        return f'מדרגה {self.bracket_index}: {ceiling_str} → {float(self.rate)*100:g}%'
+
+
+class PayrollSetting(models.Model):
+    """
+    Key/value table for non-bracket payroll settings:
+      - tax_credit_point_value
+      - bl_threshold, bl_upper_ceiling
+      - bl_employee_low, bl_employee_high, bl_employer_low, bl_employer_high
+      - health_threshold, health_employee_low, health_employee_high
+      - default_pension_employee, default_pension_employer
+      - default_severance, default_study_employee, default_study_employer
+
+    Values are stored as DECIMAL — rates are decimals (0.0104 = 1.04%),
+    thresholds and amounts are in ₪.
+    """
+    setting_key   = models.CharField(max_length=50, unique=True, primary_key=True)
+    setting_value = models.DecimalField(max_digits=15, decimal_places=6)
+    notes         = models.CharField(max_length=200, blank=True, default='')
+    updated_at    = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'payroll_settings_dev'
+        ordering = ['setting_key']
+        verbose_name = 'הגדרת שכר'
+        verbose_name_plural = 'הגדרות שכר'
+
+    def __str__(self):
+        return f'{self.setting_key} = {self.setting_value}'
+
+
+# ─── Freelancer Document ──────────────────────────────────────────────────
+
+class FreelancerDocument(models.Model):
+    """
+    Personal documents for a קבלן משנה — applies to him as a person, not to
+    a specific project. Examples: tax exemption certificate (אישור פטור
+    מניכוי מס), ID copy, professional license, insurance, עוסק certificate.
+
+    Project-scoped docs (signed contracts, payment invoices) live on the
+    FreelancerAgreement / FreelancerPayment rows; this table is for things
+    that don't tie to a single project.
+    """
+    DOC_TYPE_CHOICES = [
+        ('tax_certificate',   'אישור ניכוי מס במקור'),
+        ('tax_exemption',     'אישור פטור מניכוי מס'),
+        ('osek_certificate',  'אישור עוסק מורשה'),
+        ('id_copy',           'צילום תעודת זהות'),
+        ('insurance',         'ביטוח חבות מקצועית'),
+        ('license',           'רישיון מקצועי'),
+        ('bank_confirmation', 'אישור ניהול חשבון בנק'),
+        ('other',             'אחר'),
+    ]
+
+    freelancer           = models.ForeignKey(
+        Freelancer, on_delete=models.CASCADE, related_name='documents'
+    )
+    doc_type             = models.CharField(
+        max_length=30, choices=DOC_TYPE_CHOICES, default='other'
+    )
+    name                 = models.CharField(max_length=255)
+    description          = models.TextField(blank=True, default='')
+    # Cloudinary
+    file_url             = models.URLField(max_length=500, blank=True, default='')
+    cloudinary_public_id = models.CharField(max_length=255, blank=True, default='')
+    # Optional: tax exemption certs are valid for a calendar year
+    valid_until          = models.DateField(null=True, blank=True)
+    uploaded_by          = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='uploaded_freelancer_docs',
+    )
+    uploaded_at          = models.DateTimeField(auto_now_add=True)
+    updated_at           = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table     = 'freelancer_documents_dev'
+        ordering     = ['-uploaded_at']
+        verbose_name = 'מסמך קבלן משנה'
+
+    def __str__(self):
+        return f'{self.freelancer.full_name} — {self.name}'

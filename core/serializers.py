@@ -3,6 +3,7 @@ from .models import (User, Company, Worker, WorkerChild, Form101, Form106,
                      Project, ProjectFile, AttendanceRecord, PayrollRecord,
                      MaterialInvoice, Freelancer, FreelancerPayment,
                      ProjectWorkLog, ProjectSitePhoto)
+from .cloudinary_helpers import signed_url
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -151,10 +152,22 @@ class Form106Serializer(serializers.ModelSerializer):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class ProjectFileSerializer(serializers.ModelSerializer):
+    signed_url = serializers.SerializerMethodField()
+
     class Meta:
         model  = ProjectFile
         fields = '__all__'
-        read_only_fields = ['id', 'uploaded_at']
+        read_only_fields = ['id', 'uploaded_at', 'signed_url']
+
+    def get_signed_url(self, obj):
+        if not obj.cloudinary_public_id:
+            return ''
+        # Pick resource_type based on filename extension
+        name = (obj.file_name or '')
+        ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+        if ext in ('pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt'):
+            return signed_url(obj.cloudinary_public_id, resource_type='raw')
+        return signed_url(obj.cloudinary_public_id, resource_type='image')
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -223,11 +236,18 @@ class ProjectWorkLogSerializer(serializers.ModelSerializer):
 class ProjectSitePhotoSerializer(serializers.ModelSerializer):
     taken_by_name = serializers.CharField(
         source='taken_by.full_name', read_only=True, default='')
+    signed_url = serializers.SerializerMethodField()
 
     class Meta:
         model  = ProjectSitePhoto
-        fields = ['id', 'project', 'photo', 'caption', 'taken_by_name', 'taken_at']
-        read_only_fields = ['id', 'taken_at']
+        fields = ['id', 'project', 'photo', 'photo_url', 'cloudinary_public_id',
+                  'caption', 'taken_by_name', 'taken_at', 'signed_url']
+        read_only_fields = ['id', 'taken_at', 'signed_url']
+
+    def get_signed_url(self, obj):
+        if not obj.cloudinary_public_id:
+            return ''
+        return signed_url(obj.cloudinary_public_id, resource_type='image')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -308,6 +328,12 @@ class PayslipMobileSerializer(serializers.ModelSerializer):
     label       = serializers.SerializerMethodField()
     net_label   = serializers.SerializerMethodField()
     worker_name = serializers.CharField(source='worker.full_name', read_only=True)
+    # Fresh signed URL for the PDF (or empty string if no PDF generated yet).
+    # We re-sign from the public_id on every response — defensive against
+    # API-secret rotation, and because Cloudinary's authenticated URLs work
+    # this way (signature stays valid as long as the secret doesn't change).
+    payslip_pdf_url = serializers.SerializerMethodField()
+    has_payslip_pdf = serializers.SerializerMethodField()
 
     class Meta:
         model  = PayrollRecord
@@ -318,6 +344,7 @@ class PayslipMobileSerializer(serializers.ModelSerializer):
             'pension_employee', 'study_fund_employee',
             'regular_hours', 'overtime_hours',
             'status', 'worker_name',
+            'payslip_pdf_url', 'has_payslip_pdf',
         ]
 
     def get_label(self, obj):
@@ -329,6 +356,30 @@ class PayslipMobileSerializer(serializers.ModelSerializer):
 
     def get_net_label(self, obj):
         return f"₪{float(obj.net_salary):,.0f} נטו"
+
+    def get_has_payslip_pdf(self, obj):
+        return bool(getattr(obj, 'payslip_url', '') or
+                    getattr(obj, 'payslip_cloudinary_id', ''))
+
+    def get_payslip_pdf_url(self, obj):
+        """
+        Return a fresh signed URL for the payslip PDF.
+        Falls back to the stored URL if Cloudinary isn't configured Django-side.
+        Returns empty string if no PDF was ever generated for this payslip.
+        """
+        public_id = (getattr(obj, 'payslip_cloudinary_id', '') or '').strip()
+        stored_url = (getattr(obj, 'payslip_url', '') or '').strip()
+        if not public_id and not stored_url:
+            return ''
+        if public_id:
+            try:
+                from .cloudinary_helpers import signed_url
+                fresh = signed_url(public_id, resource_type='raw')
+                if fresh:
+                    return fresh
+            except Exception:
+                pass
+        return stored_url
 
 
 class PayrollCalculateSerializer(serializers.Serializer):
@@ -343,13 +394,26 @@ class PayrollCalculateSerializer(serializers.Serializer):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class MaterialInvoiceSerializer(serializers.ModelSerializer):
-    worker_name  = serializers.CharField(source='worker.full_name', read_only=True)
-    project_name = serializers.CharField(source='project.name', read_only=True)
+    worker_name              = serializers.CharField(source='worker.full_name', read_only=True)
+    project_name             = serializers.CharField(source='project.name', read_only=True)
+    signed_image_url         = serializers.SerializerMethodField()
+    signed_delivery_note_url = serializers.SerializerMethodField()
 
     class Meta:
         model  = MaterialInvoice
         fields = '__all__'
-        read_only_fields = ['id', 'submitted_at', 'reviewed_at']
+        read_only_fields = ['id', 'submitted_at', 'reviewed_at',
+                            'signed_image_url', 'signed_delivery_note_url']
+
+    def get_signed_image_url(self, obj):
+        if not obj.image_cloudinary_id:
+            return ''
+        return signed_url(obj.image_cloudinary_id, resource_type='image')
+
+    def get_signed_delivery_note_url(self, obj):
+        if not obj.delivery_note_cloudinary_id:
+            return ''
+        return signed_url(obj.delivery_note_cloudinary_id, resource_type='image')
 
 
 class InvoiceReviewSerializer(serializers.Serializer):
@@ -363,11 +427,20 @@ class InvoiceReviewSerializer(serializers.Serializer):
 
 class FreelancerPaymentSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
+    signed_invoice_url = serializers.SerializerMethodField()
 
     class Meta:
         model  = FreelancerPayment
         fields = '__all__'
-        read_only_fields = ['id', 'withholding_tax_amount', 'net_amount', 'created_at']
+        read_only_fields = ['id', 'withholding_tax_amount', 'net_amount',
+                            'created_at', 'signed_invoice_url']
+
+    def get_signed_invoice_url(self, obj):
+        if not obj.cloudinary_public_id:
+            return ''
+        # Most freelancer invoice files are photos. If a PDF was uploaded,
+        # the URL won't work — phase 2 will track resource_type per file.
+        return signed_url(obj.cloudinary_public_id, resource_type='image')
 
 
 class FreelancerSerializer(serializers.ModelSerializer):

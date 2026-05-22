@@ -8,9 +8,11 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'fallback-dev-key')
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '10.0.0.13', '*']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '10.0.0.13', '*','10.159.12.1']
 AUTHENTICATION_BACKENDS = ['django.contrib.auth.backends.ModelBackend']
 REGISTRATION_CODE = os.getenv('REGISTRATION_CODE', '')
+
+
 
 
 INSTALLED_APPS = [
@@ -95,7 +97,7 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME':  timedelta(hours=8),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
     'ROTATE_REFRESH_TOKENS':  True,
-    'SIGNING_KEY': 'workforce-super-secret-jwt-signing-key-2025-atleast-32chars!',
+    'SIGNING_KEY': os.getenv('JWT_SIGNING_KEY', SECRET_KEY),
 }
 
 # ── CORS ──────────────────────────────────────────────────────
@@ -106,6 +108,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:3000",
     "http://10.0.0.13:8000",
+    "http://10.0.0.42:8000",
 ]
 
 LANGUAGE_CODE = 'he'
@@ -119,3 +122,19 @@ MEDIA_URL   = '/media/'
 MEDIA_ROOT  = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+import cloudinary
+
+cloudinary.config(
+    cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME', ''),
+    api_key=os.getenv('CLOUDINARY_API_KEY', ''),
+    api_secret=os.getenv('CLOUDINARY_API_SECRET', ''),
+    secure=True,
+)
+
+
+if not (os.getenv('CLOUDINARY_CLOUD_NAME') and
+        os.getenv('CLOUDINARY_API_KEY') and
+        os.getenv('CLOUDINARY_API_SECRET')):
+    print("[WARN] Cloudinary credentials not set — file uploads will fail. "
+          "Add CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET to .env")
